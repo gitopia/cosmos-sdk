@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -368,6 +370,87 @@ func (app *BaseApp) halt() {
 	// via SIGINT/SIGTERM signals.
 	app.logger.Info("failed to send SIGINT/SIGTERM; exiting...")
 	os.Exit(0)
+}
+
+// snapshot takes a snapshot of the current state and prunes any old snapshottypes.
+func (app *BaseApp) snapshot(height int64) {
+	if app.snapshotManager == nil {
+		app.logger.Info("snapshot manager not configured")
+		return
+	}
+
+	app.logger.Info("creating state snapshot", "height", height)
+
+	snapshot, err := app.snapshotManager.Create(uint64(height))
+	if err != nil {
+		app.logger.Error("failed to create state snapshot", "height", height, "err", err)
+		return
+	}
+
+	app.logger.Info("completed state snapshot", "height", height, "format", snapshot.Format)
+
+	if app.snapshotKeepRecent > 0 {
+		app.logger.Debug("pruning state snapshots")
+
+		pruned, err := app.snapshotManager.Prune(app.snapshotKeepRecent)
+		if err != nil {
+			app.logger.Error("Failed to prune state snapshots", "err", err)
+			return
+		}
+
+		app.logger.Debug("pruned state snapshots", "pruned", pruned)
+	}
+
+	if os.Getenv("SNAPSHOT_EXPORT_ENABLED") == "1" {
+		app.logger.Info("exporting state snapshot", "height", height)
+		if err := app.ExportSnapshot(snapshot); err != nil {
+			app.logger.Error("failed to export snapshot", "height", height, "err", err)
+		}
+	}
+}
+
+func (app *BaseApp) ExportSnapshot(snapshot *snapshottypes.Snapshot) error {
+	snapshotsDir := os.Getenv("SNAPSHOT_EXPORT_DIR")
+	if snapshotsDir == "" {
+		return errors.New("SNAPSHOT_EXPORT_DIR env var is not set, not exporting the snapshot")
+	}
+
+	baseDir := fmt.Sprintf("%s/%d", snapshotsDir, snapshot.Height)
+	snapshotPath := fmt.Sprintf("%s/snapshot", baseDir)
+	chunkPath := filepath.Join(baseDir, "%d.chunk")
+
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		return err
+	}
+
+	abciSnap, err := snapshot.ToABCI()
+	if err != nil {
+		return err
+	}
+
+	data, err := abciSnap.Marshal()
+	if err != nil {
+		return err
+	}
+
+	if err := ioutil.WriteFile(snapshotPath, data, 0666); err != nil {
+		return err
+	}
+
+	for i := uint32(0); i < snapshot.Chunks; i++ {
+		app.logger.Info("exporting snapshot chunk", "height", snapshot.Height, "chunk", i)
+
+		chunkData, err := app.snapshotManager.LoadChunk(snapshot.Height, snapshot.Format, i)
+		if err != nil {
+			return err
+		}
+
+		if err := ioutil.WriteFile(fmt.Sprintf(chunkPath, i), chunkData, 0666); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Query implements the ABCI interface. It delegates to CommitMultiStore if it
