@@ -706,9 +706,9 @@ func (k Keeper) doTallyAndUpdate(ctx sdk.Context, p *group.Proposal, electorate 
 	// If the result was final (i.e. enough votes to pass) or if the voting
 	// period ended, then we consider the proposal as final.
 	if isFinal := result.Final || ctx.BlockTime().After(p.VotingPeriodEnd); isFinal {
-		if err := k.pruneVotes(ctx, p.Id); err != nil {
-			return err
-		}
+		// if err := k.pruneVotes(ctx, p.Id); err != nil {
+		// 	return err
+		// }
 		p.FinalTallyResult = tallyResult
 		if result.Allow {
 			p.Status = group.PROPOSAL_STATUS_ACCEPTED
@@ -783,26 +783,26 @@ func (k Keeper) Exec(goCtx context.Context, req *group.MsgExec) (*group.MsgExecR
 
 	// Update proposal in proposalTable
 	// If proposal has successfully run, delete it from state.
-	if proposal.ExecutorResult == group.PROPOSAL_EXECUTOR_RESULT_SUCCESS {
-		if err := k.pruneProposal(ctx, proposal.Id); err != nil {
-			return nil, err
-		}
+	// if proposal.ExecutorResult == group.PROPOSAL_EXECUTOR_RESULT_SUCCESS {
+	// 	if err := k.pruneProposal(ctx, proposal.Id); err != nil {
+	// 		return nil, err
+	// 	}
 
-		// Emit event for proposal finalized with its result
-		if err := ctx.EventManager().EmitTypedEvent(
-			&group.EventProposalPruned{
-				ProposalId:  proposal.Id,
-				Status:      proposal.Status,
-				TallyResult: &proposal.FinalTallyResult,
-			}); err != nil {
-			return nil, err
-		}
-	} else {
-		store := ctx.KVStore(k.key)
-		if err := k.proposalTable.Update(store, id, &proposal); err != nil {
-			return nil, err
-		}
+	// 	// Emit event for proposal finalized with its result
+	// 	if err := ctx.EventManager().EmitTypedEvent(
+	// 		&group.EventProposalPruned{
+	// 			ProposalId:  proposal.Id,
+	// 			Status:      proposal.Status,
+	// 			TallyResult: &proposal.FinalTallyResult,
+	// 		}); err != nil {
+	// 		return nil, err
+	// 	}
+	// } else {
+	store := ctx.KVStore(k.key)
+	if err := k.proposalTable.Update(store, id, &proposal); err != nil {
+		return nil, err
 	}
+	// }
 
 	err = ctx.EventManager().EmitTypedEvent(&group.EventExec{
 		ProposalId: id,
